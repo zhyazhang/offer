@@ -530,3 +530,184 @@ Jvm attach 机制是指 JVM 提供的一种 JVM 进程间通信的功能，能�
 - Javassist： ASM 是在指令层次上操作字节码的，我们的直观感受是在指令层次上操作字节码的框架实现起来比较晦涩。故除此之外，再简单介绍另外一类框架：强调源代码层次操作字节码的框架 Javassist。利用 Javassist 实现字节码增强时，可以无须关注字节码刻板的结构，其优点就在于编程简单。直接使用 Java 编码的形式，而不需要了解虚拟机指令，就能动态改变类的结构或者动态生成类。
 - Instrument：Instrument 是 JVM 提供的一个可以修改已加载类的类库，专门为 Java 语言编写的插桩服务提供支持。它需要依赖 JVMTI 的 Attach API 机制实现。
 - Byte Buddy：ByteBuddy 是一个开源 Java 库，其主要功能是帮助用户屏蔽字节码操作，以及复杂的 InstrumentationAPI。ByteBuddy 提供了一套类型安全的API和注解，我们可以直接使用这些 API 和注解轻松实现复杂的字节码操作。另外，Byte Buddy 提供了针对 Java Agent 的额外 API，帮助开发人员在 Java Agent 场景轻松增强已有代码。
+
+## 同步指令
+
+Java虚拟机可以支持方法级的同步和方法内部一段执行序列的同步，这两种同步结构都是使用管程`Monitor`(也称为锁)来实现。
+
+方法级的同步是隐式的，无须通过字节码指令来控制，它实现在方法调用和返回操作中。虚拟机可以从方法常量池中的方法表结构中的`ACC_SYNCHRONIZED`访问标志得到一个方法是否被声明为同步方法。当方法调用时，调用指令将会检查方法的`ACC_SYNCHRONIZED`访问标志是否被设置，如果设置了，执行线程要求先成功持有管程，然后才能执行方法，最后当方法完成时释放管程。在方法执行期间，执行线程持有了管程，其它任何线程都无法再获取同一管程。如果一个同步方法执行期间抛出了异常，并且在方法内部无法处理此异常，那这个同步方法所持有的管程将在异常抛到同步方法边界之外时自动释放。
+
+同步一段指令集序列通常是由java语言中的synchronized语句块来表示的，Java虚拟机的指令集中有`monitorenter`和`monitorexit`两条指令来支持synchronized关键字的语义，正确实现synchronized关键字需要Javac编译器与Java虚拟机两者共同协作支持：
+
+```java
+void onlyMe(Foo f){
+    synchronized(f){
+        doSonmething();
+    }
+}
+```
+
+编译后，字节码序列如下：
+
+```
+Method void onlyMe(Foo)
+ 0 aload_1		//将对象f入栈
+ 1 dup			//复制栈顶元素(即f的引用)
+ 2 astore_2		//将栈顶元素存储到局部变量表变量槽 2 中
+ 3 monitorenter	//以栈顶元素(f)作为锁，开始同步
+ 4 aload_0		//将局部变量槽 0(this指针)的元素入栈
+ 5 invokevirtual #35	//调用doSomething()方法
+ 8 aload_2		//将局部变量Slow 2的元素(f)入栈
+ 9 monitorexit	//退出同步
+10 goto 18 (+8)	//方法正常结束，跳转到18返回
+13 astore_3		//从这步开始是异常路径，见异常表的Taget 13
+14 aload_2		//将局部变量Slow 2的元素(f)入栈
+15 monitorexit	//退出同步
+16 aload_3		//将局部变量Slow 3的元素(异常对象)入栈
+17 athrow		//把异常对象重新抛给onlyMe()方法的调用者
+18 return		//方法正常返回
+
+
+
+Exception table:
+FromTo Target Type
+4	10	13	any
+13	16	13	any
+```
+
+编译器必须确保无论方法通过何种方式完成，方法中调用过的每条monitorenter指令都必须有其对应的monitorexit指令，而无论这个方法是正常结束还是异常结束。
+
+为了保证在方法异常完成时`monitorenter`和`monitorenter`指令依然可以正常配对执行，编译器会自动产生一个异常处理程序。
+
+## 类必须立即初始化的情况
+
+1. 遇到`new`,`getstatic`,`putstatic`和`invokestatic`这四条字节码指令时，如果类型没有进行初始化，则需要先触发其初始化阶段。能够生成这四条指令的典型java代码场景有：
+   1. 使用`new`关键字实例化对象的时候
+   2. 读取或设置一个类型的静态字段(被`final`修饰，已在编译器把结果放入常量池的静态字段除外)的时候
+   3. 调用一个类型的静态方法的时候
+2. 使用`java.lang.reflect`包的方法对类型进行反射调用的时候，如果类型没有进行过初始化，则需要先触发其初始化
+3. 当初始化类的时候，如果发现其父类还没有进行过初始化，则需要先触发其父类的初始化
+4. 当虚拟机启动时，用户需要指定一个要执行的主类(包含`main()`方法时的那个类)虚拟机会先初始化这个类
+5. 当使用JDK7新加入的动态语言支持时，如果一个`java.lang.invoke.MethodHandle`实例最后的解析结果为`REF_getStatic`、`REF_putStatic`、`REF_invokeStatic`、`REF_newInvokeSpecial`四种类型的方法句柄，并且这个方法句柄对应的类没有进行过初始化，则需要先触发其初始化
+6. 当一个接口中定义了JDK8新加入的默认方法(被`default`关键字修饰的接口方法)时，如果有这个接口的实现类发生了初始化，那该接口要在其之前被初始化
+
+## 数组是类
+
+1. 数组是有对应的类，这个类是在JVM运行时创建的，所以没有对应的class 文件。
+2. 数组的类名是：[ 开头的，和普通类的不一样。
+3. 数组类中不包含任何成员和变量（可以通过getClass拿到 Class 对象来查看），数组的长度length是通过JVM的指令 `arraylength `直接得到的。
+4. 数组的类和一般类在JVM中是区分对待的，JVM会对数组类做一些特殊的操作，比如数组类的对象创建是通过JVM指令直接执行的，比如 `newarray- `创建一个数组对象，`multianewarray-`创建多个数组对象。
+5. 数组类并不是只有一个类，而是会有很多个。数组类的类型是由数组的内容和维度同时决定的。比如：int[] 的类名是：[I ；int[][] 的类名是:[[I （其中的 I 是 int 类型的在虚拟机指令中数据类型）。这是两个不同的类。
+
+### **Java虚拟机规范**
+
+#### 3.9. 数组
+
+```java
+void createBuffer() {
+    int buffer[];
+    int bufsz = 100;
+    int value = 12;
+    buffer = new int[bufsz];
+    buffer[10] = value;
+    value = buffer[11];
+}
+```
+
+可能编译为：
+
+```
+Method void createBuffer()
+0   bipush 100     // Push int constant 100 (bufsz)
+2   istore_2       // Store bufsz in local variable 2
+3   bipush 12      // Push int constant 12 (value)
+5   istore_3       // Store value in local variable 3
+6   iload_2        // Push bufsz...
+7   newarray int   // ...and create new int array of that length
+9   astore_1       // Store new array in buffer
+10  aload_1        // Push buffer
+11  bipush 10      // Push int constant 10
+13  iload_3        // Push value
+14  iastore        // Store value at buffer[10]
+15  aload_1        // Push buffer
+16  bipush 11      // Push int constant 11
+18  iaload         // Push value at buffer[11]...
+19  istore_3       // ...and store it in value
+20  return
+```
+
+`anewarray`*指令*用于创建对象引用的一维数组，例如：
+
+```java
+void createThreadArray() {
+    Thread threads[];
+    int count = 10;
+    threads = new Thread[count];
+    threads[0] = new Thread();
+}
+
+```
+
+编译为：
+
+```
+Method void createThreadArray()
+0   bipush 10           // Push int constant 10
+2   istore_2            // Initialize count to that
+3   iload_2             // Push count, used by anewarray
+4   anewarray class #1  // Create new array of class Thread
+7   astore_1            // Store new array in threads
+8   aload_1             // Push value of threads
+9   iconst_0            // Push int constant 0
+10  new #1              // Create instance of class Thread
+13  dup                 // Make duplicate reference...
+14  invokespecial #5    // ...for Thread's constructor
+                        // Method java.lang.Thread.<init>()V
+17  aastore             // Store new Thread in array at 0
+18  return
+```
+
+anewarray指令*还可*用于创建多维数组的第一维。或者，可以使用*multianewarray指令一次创建多个维度。*例如三维数组：
+
+```
+int[][][] create3DArray() {
+    int grid[][][];
+    grid = new int[10][5][];
+    return grid;
+}
+
+```
+
+编译为
+
+```
+Method int create3DArray()[][][]
+0   bipush 10                // Push int 10 (dimension one)
+2   iconst_5                 // Push int 5 (dimension two)
+3   multianewarray #1 dim #2 // Class [[[I, a three-dimensional
+                             // int array; only create the
+                             // first two dimensions
+7   astore_1                 // Store new array...
+8   aload_1                  // ...then prepare to return it
+9   areturn
+```
+
+*multianewarray*指令的第一个操作数是要创建的数组类类型的运行时常量池索引。第二个是实际创建的该数组类型的维数。multianewarray 指令可用于创建类型的所有维度，如代码*所示*`create3DArray`。请注意，多维数组只是一个对象，因此分别由*aload_1*和*areturn*指令加载和返回。
+
+#### 5.3.3Creating Array Classes
+
+以下步骤用于创建使用类加载器表示的 数组类C。类加载器可以是引导类加载器或用户定义的类加载器。 
+
+如果`L`已经被记录为与 具有相同组件类型的数组类的初始加载器，`N`则该类是C，并且不需要创建数组类。
+
+否则，将执行以下步骤来创建C：
+
+1. 如果组件类型是类型，则使用类加载器递归应用`reference`本节的算法，以便加载并创建C的组件类型。
+
+2. Java 虚拟机使用指定的组件类型和维数创建一个新的数组类。
+
+   如果组件类型是`reference`类型，则将C标记为已由组件类型的定义类加载器定义。否则，C被标记为已由引导类加载器定义。
+
+   在任何情况下，Java 虚拟机都会记录它`L`是C的初始加载器。
+
+   如果组件类型是`reference`类型，则数组类的可访问性取决于其组件类型的可访问性。否则，所有类和接口都可以访问数组类。
