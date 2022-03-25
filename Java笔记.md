@@ -711,3 +711,113 @@ Method int create3DArray()[][][]
    在任何情况下，Java 虚拟机都会记录它`L`是C的初始加载器。
 
    如果组件类型是`reference`类型，则数组类的可访问性取决于其组件类型的可访问性。否则，所有类和接口都可以访问数组类。
+
+## 类加载过程
+
+==类加载全过程：加载，验证，准备，解析和初始化==
+
+
+
+## 类加载器
+
+==通过一个类的全限定名来获取描述该类的二进制字节流==
+
+对于任意一个类，都必须由加载它的类加载器和这个类本身一起共同确立其在Java虚拟机中的唯一性，每个类加载器，都拥有一个独立的类命称空间。比较两个类是否“相等”，只有在这两个类是由同一个类加载器加载的前提下才有意义，否则，即使这两个类来源于同一个Class文件，被同一个Java虚拟机加载，只要加载他们的类加载器不同，那这两个类就必定不相等。
+
+这里指的==相等==，包括代表类的Class对象的`equals()`，`isAssignableFrom()`方法`isinstance()`方法的返回结果，也包括使用`instanceof`关键字做对象所属关系判定等各种情况。
+
+站在Java虚拟机的角度来看，只存在两种不同的类加载器：
+
+1. ==启动类加载器==(`Bootstrap ClassLoader`)，这个类加载器使用C++语言实现(仅限于HotSpot)，是虚拟机自身的一部分；
+2. ==其它所有的类加载器==，这些类加载器都由Java语言实现，独立存在于虚拟机外部，并且全部继承自抽象类`java.lang.ClassLoader`
+
+三层类加载器：
+
+1. 启动类加载器(`Bootstrap Class Loader`)：负责加载存放在`<JAVA_HOME>/lib`目录，或者被`-Xbootclasspath`参数所指定的路径中存放的，并且是Java虚拟机能够识别的类库加载到虚拟机的内存中。启动类加载器无法被Java程序直接引用，用户在编写自定义加载器时，如果需要吧加载请求委派给引导类加载器处理，直接使用`null`代替即可。
+2. 扩展类加载器(`Extension Class Loader`)：在类`sun.misc.Launcher$ExtClassLoader`中以Java代码的形式实现。负责加载`<JAVA_HOME>/lib/ext`目录，或者被`java.ext.dirs`系统变量所指定的路径中所有的类库。开发者可以直接在程序中使用扩展类加载器来加载Class文件。
+3. 应用类加载器(`Application Class Loader`)：由`sun.misc.Launcher$AppClassLoader`来实现。负责加载用户类路径`ClassPath`上所有的类库，开发者可以直接在代码中使用这个类加载器。
+
+### 双亲委派机制
+
+工作过程：
+
+如果一个类加载器收到了类加载的请求，它首先不会自己去尝试加载这个类，而是把这个请求委派给父类加载器去完成，每个层次的类加载器都是如此，因此所有的加载请求最终都应该传送到最顶层的启动类加载器中，只有当父加载器反馈自己无法完成这个加载请求(==它的搜索范围中没有找到所需的类==)时，自家在其才会尝试去完成加载。
+
+优点：
+
+Java中的类随着它的类加载器一起具备了一种带有优先级的层次关系。例如类`java.lang.Object`，它存放在`rt.jar`之中，无论哪个类加载器要加载这个类，最终都是委派给处于模型最顶端的启动类加载器进行加载，因此，Object类在程序的各种类加载器环境中都能保证是同一个类。
+
+==双亲委派模型的实现==(集中在`java.lang.ClassLoader`的`loadClass()`方法中)
+
+```java
+protected synchronized Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException{
+    //首先，检查请求的类是否已经被加载过了
+    
+    Class c = findLoadedClass(name);
+    if(c == null){
+        try{
+            if(parent == null){
+                c = parent.loadClass(name, false);
+            }else{
+                c = findBootStrapClassOrNull(name);
+            }catch(ClassNotFoundException e){
+                //如果父类加载器抛出ClassNotFoundException
+                //说明父类加载器无法完成加载请求
+            }
+            if(c == null){
+                //在父类加载器无法加载时
+                //再调用本身的findClass方法来进行类加载
+                c == findClass(name);                
+            }
+        }
+    }
+    if(resolve){
+        resolveClass(c);
+    }
+    return c;
+}
+```
+
+#### 破坏双亲委派机制
+
+1. 发生在双亲委派模型出现之前(JDK1.2之前)
+2. 模型自身缺陷，双亲委派很好地解决了各个类加载器协作时基础类型的一致性问题
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
