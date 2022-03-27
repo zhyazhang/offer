@@ -782,6 +782,183 @@ protected synchronized Class<?> loadClass(String name, boolean resolve) throws C
 
 1. 发生在双亲委派模型出现之前(JDK1.2之前)
 2. 模型自身缺陷，双亲委派很好地解决了各个类加载器协作时基础类型的一致性问题
+2. 是由于用户对程序动态性的追求而导致的，动态性指：代码热替换(Hot Swap)、模块热部署(Hot Deployment)。
+
+
+
+### 模块化热部署
+
+#### OSGi
+
+实现模块化热部署的关键是它自定义的类加载器机制的实现，每个程序模块都由一个自己的类加载器，当需要更换一个Bundle时，就把Bundle连同类加载器一起换掉以实现代码的热替换。在OSGi环境下类加载器不再双亲委派模型推荐的树状结构，而是进一步发展为更为复杂的网状结构，当收到类加载请求时，OSGi将按照下面的顺序进行类搜索：
+
+1. 将以`java.*`开头的类，委派给父类加载器加载
+2. 否则，将委派列表名单内的类，委派给父类加载器加载。
+3. 否则，将Import列表中的类，委派给Export这个类的Bundle的类加载器加载
+4. 否则，查找当前Bundle的ClassPath，使用自己的类加载器加载
+5. 否则，查找类是否在自己的Fragment Bundle中，如果在，则委派给Fragment Bundle的类加载器加载
+6. 否则，查找Dynamic Import列表的Bundle，委派给对应Bundle的类加载器加载
+7. 否则，类查找失败
+
+ 
+
+## 虚拟机和物理机
+
+“虚拟机”是相对于“物理机”的概念，这两种机器都由代码执行能力，其区别是物理机的执行引擎是直接建立在处理器、缓存、指令集和操作系统上，而虚拟机的执行引擎则是由软件自行实现的，因此可以不受物理条件制约地定制指令集与执行引擎的结构体系，能够执行那些不被硬件直接支持的指令集格式。
+
+在不同的虚拟机实现中，执行引擎在执行字节码的时候，通常会有解释执行（解释器执行）和编译执行（即时编译器产生本地代码执行）两种选择。
+
+## 局部变量表槽复用对垃圾回收的影响
+
+为了节省栈帧耗用的内存空间，局部变量表中的变量槽是可以重用的，方法体中定义的变量，其作用域并不一定会覆盖整个方法体，如果当前字节码PC计算器的值已经超出了某个变量的作用域，那这个变量对应的变量槽就可以交给其它变量来重用。
+
+```java
+//1
+public static void main(String[] args) {
+        byte[] placeHolder = new byte[64 * 1024 * 1024];
+
+        System.gc();
+}
+
+//不回收
+
+//2
+
+public static void main(String[] args) {
+
+        {
+            byte[] placeHolder = new byte[64 * 1024 * 1024];
+        }
+
+        System.gc();
+}
+
+//不回收
+
+//3
+public static void main(String[] args) {
+
+        {
+            byte[] placeHolder = new byte[64 * 1024 * 1024];
+        }
+        int a = 0;
+
+        System.gc();
+}
+
+//回收
+```
+
+## 分派
+
+### 静态分派(编译阶段)(多分派)
+
+所有依赖静态类型来决定方法执行版本的分派动作，都称为静态分派，静态分派的最典型引用表现为==方法重载==。静态分派发生在编译阶段，因此确定静态分派的动作实际上不是由虚拟机来执行的。
+
+```java
+public class StaticDispath{
+    static abstract class Human{}
+    
+    static class Man extends Human{}
+    
+    static class Woman extends Human{}
+    
+    public void sayHello(Human guy){
+        System.out.println("hello,guy!");
+    }
+    
+    public void sayHello(Man guy){
+        System.out.println("hello,gentleman!");
+    }
+    
+    public void sayHello(Woman guy){
+        System.out.println("hello,lady!");
+    }
+    
+    public static void main(String[] args){
+        Human man = new Man();
+        Human woman = new Woman();
+        StaticDispath sr = new StaticDispath();
+        sr.sayHello(man);
+        sr.sayHello(woman);
+    }
+}
+
+//结果
+//hello,guy!
+//hello,guy!
+```
+
+```java
+Human man = new Man();
+```
+
+其中Human称为变量的静态类型，Man称为变量的实际类型。静态类型和实际类型在程序中都可能发生变化，区别是静态类型的变化仅仅在使用时发生，变量本身的静态类型不会被改变，并且最终的静态类型在编译期是可知的；而实际类型变化的结果在运行期才可确定，编译器在编译程序的时候并不知道一个对象的实际类型是什么
+
+```java
+//实际类型变化
+Human human = (new Random()).nextBoolean()?new Man():new Woman();
+
+//静态类型变化
+
+sr.sayHello((Man)human);
+sr.sayHello((Woman)human);
+```
+
+需要注意Javac编译器虽然能确定出方法的重载版本，但在很多情况下这个重载版本并不是唯一的，往往只能确定一个先对合适的版本。
+
+```java
+public class Overload{
+    public static void sayHello(Object arg){
+        System.out.println("hello Object");
+    }
+    public static void sayHello(int arg){
+        System.out.println("hello int");
+    }
+    public static void sayHello(long arg){
+        System.out.println("hello long");
+    }
+    public static void sayHello(Character arg){
+        System.out.println("hello Character");
+    }
+    public static void sayHello(char arg){
+        System.out.println("hello char");
+    }
+    public static void sayHello(char... arg){
+        System.out.println("hello char...");
+    }
+    public static void sayHello(Serializable arg){
+        System.out.println("hello Serializable");
+    }
+    
+    public static void main(String[] args){
+        sayHello('a');
+    }
+}
+```
+
+运行后输出`hello char`，注释掉`void sayHello(char arg)`
+
+输出`hello int`，注释掉`void sayHello(int arg)`，自动转型为`int`,`a`的`Unicode`十进制数字`97`
+
+输出`hello long`，注释掉`void sayHello(long arg)`，再发生一次自动转型`long`,按照`char>int>long>float>double`转型匹配
+
+输出`hello Character`，注释掉`void sayHello(Character arg)`，自动装箱
+
+输出`hello Serializable`，注释掉`void sayHello(Serializable arg)`，因为`java.lang.Serializable`是`java.lang.Character`类实现的一个接口
+
+输出`hello Object`，注释掉`void sayHello(Object arg)`，装箱后转型为父类
+
+输出`hello char...`，可变长参数的优先级最低
+
+### 动态分派(运行阶段)(单分派)
+
+多态性的根源在于虚方法调用指令`invokevirtual`的执行逻辑：
+
+1. 找到操作数栈顶的第一个元素所指向的对象的实际类型记作C
+2. 如果在类型C中找到了与常量中的描述符和简单名称都符合的方法，则进行访问权限校验，如果通过则返回这个方法的直接引用，查找过程结束；不通过则返回`java.lang.IllegalAccessError`异常
+3. 否则，按照继承关系从下到上依次对C的各个父类进行第二步的搜索和验证过程
+4. 如果始终没有找到合适的方法，则抛出`java.lang.AbstractMethodError`异常
 
 
 
