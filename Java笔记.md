@@ -960,19 +960,286 @@ public class Overload{
 3. 否则，按照继承关系从下到上依次对C的各个父类进行第二步的搜索和验证过程
 4. 如果始终没有找到合适的方法，则抛出`java.lang.AbstractMethodError`异常
 
+## 布隆过滤器
+
+布隆过滤器（Bloom Filter）是 1970 年由布隆提出的。它实际上是一个很长的二进制向量和一系列随机映射函数。布隆过滤器可以用于检索一个元素是否在一个集合中。**它的优点是空间效率和查询时间都比一般的算法要好的多，缺点是有一定的误识别率和删除困难**。
+
+### 1、简介
+
+当你往简单数组或列表中插入新数据时，将不会根据插入项的值来确定该插入项的索引值。这意味着新插入项的索引值与数据值之间没有直接关系。这样的话，当你需要在数组或列表中搜索相应值的时候，你必须遍历已有的集合。若集合中存在大量的数据，就会影响数据查找的效率。
+
+针对这个问题，你可以考虑使用哈希表。**利用哈希表你可以通过对 “值” 进行哈希处理来获得该值对应的键或索引值**，然后把该值存放到列表中对应的索引位置。这意味着索引值是由插入项的值所确定的，当你需要判断列表中是否存在该值时，只需要对值进行哈希处理并在相应的索引位置进行搜索即可，这时的搜索速度是非常快的。
+
+![img](images/16eba609826ea165tplv-t2oaga2asx-zoom-in-crop-mark1304000.awebp)
+
+根据定义，布隆过滤器可以检查值是 **“可能在集合中”** 还是 **“绝对不在集合中”**。“可能” 表示有一定的概率，也就是说可能存在一定为误判率。那为什么会存在误判呢？下面我们来分析一下具体的原因。
+
+布隆过滤器（Bloom Filter）本质上是由长度为 m 的位向量或位列表（仅包含 0 或 1 位值的列表）组成，最初所有的值均设置为 0，如下图所示。
+
+![img](images/16eba609849bd878tplv-t2oaga2asx-zoom-in-crop-mark1304000.awebp)
+
+为了将数据项添加到布隆过滤器中，我们会提供 K 个不同的哈希函数，并将结果位置上对应位的值置为 “1”。在前面所提到的哈希表中，我们使用的是单个哈希函数，因此只能输出单个索引值。而对于布隆过滤器来说，我们将使用多个哈希函数，这将会产生多个索引值。
+
+![img](images/16eba60983fcefcdtplv-t2oaga2asx-zoom-in-crop-mark1304000.awebp)
+
+如上图所示，当输入 “semlinker” 时，预设的 3 个哈希函数将输出 2、4、6，我们把相应位置 1。假设另一个输入 ”kakuqo“，哈希函数输出 3、4 和 7。你可能已经注意到，索引位 4 已经被先前的 “semlinker” 标记了。此时，我们已经使用 “semlinker” 和 ”kakuqo“ 两个输入值，填充了位向量。当前位向量的标记状态为：
+
+![img](images/16eba60984f70b5atplv-t2oaga2asx-zoom-in-crop-mark1304000.awebp)
+
+当对值进行搜索时，与哈希表类似，我们将使用 3 个哈希函数对 ”搜索的值“ 进行哈希运算，并查看其生成的索引值。假设，当我们搜索 ”fullstack“ 时，3 个哈希函数输出的 3 个索引值分别是 2、3 和 7：
+
+![img](images/16eba60985ae27ectplv-t2oaga2asx-zoom-in-crop-mark1304000.awebp)
 
 
 
+从上图可以看出，相应的索引位都被置为 1，这意味着我们可以说 ”fullstack“ 可能已经插入到集合中。事实上这是误报的情形，产生的原因是由于哈希碰撞导致的巧合而将不同的元素存储在相同的比特位上。幸运的是，布隆过滤器有一个可预测的误判率（FPP）：
+$$
+P_{f} p \approx\left(1-e^{-\frac{k n}{m}}\right)^{k}
+$$
+
+- n 是已经添加元素的数量；
+- k 哈希的次数；
+- m 布隆过滤器的长度（如比特数组的大小）；
+
+极端情况下，当布隆过滤器没有空闲空间时（满），每一次查询都会返回 true 。这也就意味着 m 的选择取决于期望预计添加元素的数量 n ，并且 m 需要远远大于 n 。
+
+实际情况中，布隆过滤器的长度 m 可以根据给定的误判率（FFP）的和期望添加的元素个数 n 的通过如下公式计算：
+$$
+m=-\frac{n \ln P_{f p}}{(\ln 2)^{2}}
+$$
+了解完上述的内容之后，我们可以得出一个结论，**当我们搜索一个值的时候，若该值经过 K 个哈希函数运算后的任何一个索引位为 ”0“，那么该值肯定不在集合中。但如果所有哈希索引值均为 ”1“，则只能说该搜索的值可能存在集合中**。
+
+### 2、应用
+
+在实际工作中，布隆过滤器常见的应用场景如下：
+
+- 网页爬虫对 URL 去重，避免爬取相同的 URL 地址；
+- 反垃圾邮件，从数十亿个垃圾邮件列表中判断某邮箱是否垃圾邮箱；
+- Google Chrome 使用布隆过滤器识别恶意 URL；
+- Medium 使用布隆过滤器避免推荐给用户已经读过的文章；
+- Google BigTable，Apache HBbase 和 Apache Cassandra 使用布隆过滤器减少对不存在的行和列的查找。 除了上述的应用场景之外，布隆过滤器还有一个应用场景就是解决缓存穿透的问题。所谓的缓存穿透就是服务调用方每次都是查询不在缓存中的数据，这样每次服务调用都会到数据库中进行查询，如果这类请求比较多的话，就会导致数据库压力增大，这样缓存就失去了意义。
+
+利用布隆过滤器我们可以预先把数据查询的主键，比如用户 ID 或文章 ID 缓存到过滤器中。当根据 ID 进行数据查询的时候，我们先判断该 ID 是否存在，若存在的话，则进行下一步处理。若不存在的话，直接返回，这样就不会触发后续的数据库查询。需要注意的是缓存穿透不能完全解决，我们只能将其控制在一个可以容忍的范围内
+
+## 编译器
+
+在Java技术下谈"编译器"而没有具体上下文语境的话，是一个很模糊的表达：
+
+1. 前端编译器：把`*.java`文件转变成`*.class`文件的过程；
+2. Java虚拟机的即时编译器(常称为JIT编译器，`Just In Time Compiler`)，运行期把字节码转变成本地机器码的过程；
+3. 还可能指使用静态的提前编译器(常称为`AOT`编译器，`Ahead Of Time Compiler`)直接把程序编译成与目标机器指令集相关的二进制代码过程。
+
+## 语法糖
+
+> `Java`虚拟机运行时并不直接支持这些语法，他们在编译阶段被还原回原始的基础语法结构，这个过程就成为解语法糖。在`Javac`的源码中，解语法糖的过程由`desugar()`方法触发，在`com.sun.tools.javac.comp.TransTypes`类和`com.sun.tools.javac.comp.Lower`类中完成。
+
+### 1.泛型
+
+泛型的本质是参数化类型(`Parameterized Type`)或者参数化多态(`Parametric Polymorphism`)的应用，即可以将操作的数据类型指定为方法签名中的一种特殊参数，这种参数类型能够用在类，接口和方法的创建中，分别构成泛型类，泛型接口和泛型方法。
+
+`Java`选择的泛型实现方法叫做**类型擦除式泛型(`Type Erasure Generics`)**，Java中的泛型只在程序源码中存在，在编译后的字节码文件中，全部泛型都被替换为原来的**裸类型(`Raw Type`)**，并且在相应的位置插入强制转型代码，因此对于运行期的Java语言来说`ArrayList<int>`和`ArrayList<String>`其实是同一个类型。
+
+**Java中不支持的泛型用法**
+
+```java
+public class TypeErasureGenerics<E>{
+    public void doSomething(Object item){
+        if(item instanceof E){//不合法，无法对泛型进行实例判断
+            ...
+        }
+        E newItem = new E();//不合法，无法使用泛型创建对象
+        E[] itemArray = new E[10];//不合法，无法使用泛型创建数组
+    }
+}
+
+```
+
+#### 1.2类型擦除
+
+要让所有需要泛型化的已有类型，譬如`ArrayList`，原地泛型化后变成了`ArrayList<T>`，而且必须保证以前直接用`ArrayList`的代码在泛型新版本里必须还能继续用这用一个容器，就必须让所有泛型化的实例类型，譬如`ArrayList<Integer>`、`ArrayList<String>`这些全部自动称为`ArrayList`的子类型才能可以，否则类型转换就是不安全的。由此引出了"裸类型(`Raw Type`)"的概念，裸类型应该被视为所有该类型泛化实例的共同父类型`Super Type`。
+
+```java
+ArrayList<Integer> ilist = new ArrayList<>();
+ArrayList<String> slist = new ArrayyList<>();
+
+ArrayList list;//裸类型
+list = ilist;
+list = slist;
+```
+
+如何实现裸类型：
+
+直接在编译时把`ArrayList<Integer>`还原回`ArrayList`，只在元素访问、修改时自动插入一些强制类型转换和检查指令。
+
+```java
+public static void main(String[] args) {
+
+    Map<String, String> map = new HashMap<>();
+    map.put("hello", "你好");
+    map.put("how are you?", "fine");
+    System.out.println(map.get("hello"));
+    System.out.println(map.get("how are you?"));
+
+}
+```
+
+泛型擦除后：
+
+```java
+public static void main(String args[])
+{
+	Map map = new HashMap();
+	map.put("hello", "你好");
+	map.put("how are you?", "fine");
+	System.out.println((String)map.get("hello"));
+	System.out.println((String)map.get("how are you?"));
+}
+```
+
+带来的问题：
+
+1. 使用擦除法实现泛型直接导致了对原始类型数据的支持称为新的麻烦
+
+   ```java
+   ArrayList<int> ilist = new ArrayList<>();//无法编译
+   ArrayList<long> llist = new ArrayyList<>();
+   
+   ArrayList list;//裸类型
+   list = ilist;
+   list = llist;
+   ```
+
+2. 运行期无法取到泛型类型信息
+
+   ```java
+   public class GenericType{
+       public static void method(List<String> list){
+           System.out.println("invoke method List<String>");
+       }
+       public static void method(List<Integer> list){
+           System.out.println("invoke method List<String>");
+       }
+   }
+   
+   //ERROR
+   //'method(List<String>)' clashes with 'method(List<Integer>)'; both methods have same erasure
+   ```
+
+   参数`List<Integer>`和`List<String>`编译之后被擦除，变成了同一种裸类型`List`，类型擦除导致这两个方法的特征签名变得一模一样。
+
+### 2.自动装箱、拆箱与遍历循环
+
+```java
+public static void main(String[] args) {
 
 
+    List<Integer> list = Arrays.asList(1, 2, 3, 4);
+    int sum = 0;
+    for (int i : list) {
+        sum += i;
+    }
+    System.out.println(sum);
 
+}
+```
 
+编译之后：
 
+```java
+public static void main(String args[])
+{
+	List list = Arrays.asList(new Integer[] {
+		Integer.valueOf(1), 
+        Integer.valueOf(2), 
+        Integer.valueOf(3), 
+        Integer.valueOf(4)
+	});
+	int sum = 0;
+	for (Iterator iterator = list.iterator(); iterator.hasNext();)
+	{
+		int i = ((Integer)iterator.next()).intValue();
+		sum += i;
+	}
 
+	System.out.println(sum);
+}
+```
 
+#### 2.1自动装箱的陷阱
 
+```java
+public static void main(String[] args) {
 
+    Integer a = 1;
+    Integer b = 2;
+    Integer c = 3;
+    Integer d = 3;
+    Integer e = 321;
+    Integer f = 321;
+    Long g = 3L;
 
+    System.out.println(c == d);
+    System.out.println(e == f);
+    System.out.println(c == (a + b));
+    System.out.println(c.equals(a + b));
+    System.out.println(g == (a + b));
+    System.out.println(g.equals(a + b));
+}
+
+//输出
+//True
+//False
+//True
+//True
+//True
+//False
+```
+
+泛型擦除后：
+
+```java
+public static void main(String args[])
+{
+	Integer a = Integer.valueOf(1);
+	Integer b = Integer.valueOf(2);
+	Integer c = Integer.valueOf(3);
+	Integer d = Integer.valueOf(3);
+	Integer e = Integer.valueOf(321);
+	Integer f = Integer.valueOf(321);
+	Long g = Long.valueOf(3L);
+	System.out.println(c == d);
+	System.out.println(e == f);
+	System.out.println(c.intValue() == a.intValue() + b.intValue());
+	System.out.println(c.equals(Integer.valueOf(a.intValue() + b.intValue())));
+	System.out.println(g.longValue() == (long)(a.intValue() + b.intValue()));
+	System.out.println(g.equals(Integer.valueOf(a.intValue() + b.intValue())));
+}
+```
+
+### 3.条件编译
+
+Java语言可以进行条件编译，方法就是使用条件为常量的`if语句`，该代码中的`if`语句不同于其它Java代码，它在**编译阶段**就会被**运行**：
+
+```java
+public static void main(String[] args) {
+
+    if (true) {
+        System.out.println("block 1");
+    } else {
+        System.out.println("block 2");
+
+    }
+}
+```
+
+编译后：
+
+```
+public static void main(String args[])
+{
+	System.out.println("block 1");
+}
+```
 
 
 
