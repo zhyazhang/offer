@@ -440,14 +440,14 @@ class ZerocopyFile {
 
 Java Agent 又叫做 Java 探针，Java Agent 是在 JDK1.5 引入的，==是一种可以动态修改 Java 字节码的技术==。Java 类编译之后形成字节码被 JVM 执行，在 JVM 在执行这些字节码之前获取这些字节码信息，并且通过字节码转换器对这些字节码进行修改，来完成一些额外的功能，这种就是 Java Agent 技术。
 
-从用户使用层面来看，Java Agent 一般通过在应用启动参数中添加 -javaagent 参数添加 ClassFileTransformer 字节码转换器。 在 Java 虚拟机启动时，执行main() 函数之前，Java 虚拟机会先找到 -javaagent 命令指定 jar 包，然后执行 premain-class 中的 premain() 方法。用一句概括其功能的话就是：==main() 函数之前的一个拦截器。==
+从用户使用层面来看，`Java Agent` 一般通过在应用启动参数中添加 `-javaagent` 参数添加 `ClassFileTransformer `字节码转换器。 在 Java 虚拟机启动时，执行main() 函数之前，Java 虚拟机会先找到 `-javaagent` 命令指定 jar 包，然后执行 `premain-class` 中的 `premain()` 方法。用一句概括其功能的话就是：==main() 函数之前的一个拦截器。==
 
 ### 2.Java Agent可以实现什么样的功能？
 
 从上面提到的字节码转换器的两种执行方式来看可以实现如下功能：
 
 - Java Agent 能够在加载 Java 字节码之前进行拦截并对字节码进行修改;
-- 在 Jvm 运行期间修改已经加载的字节码;
+- 在 `Jvm `运行期间修改已经加载的字节码;
 
 因此，通过以上两点即可实现在一些框架或是技术的采集点进行字节码修改，对应用进行监控（比如通过JVM CPU Profiler 从CPU、Memory、Thread、Classes、GC等多个方面对程序进行动态分析），或是对执行指定方法或接口时做一些额外操作，比如打印日志、打印方法执行时间、采集方法的入参和结果等；
 
@@ -476,7 +476,7 @@ JVM 在类加载时触发`JVMTI_EVENT_CLASS_FILE_LOAD_HOOK` 事件调用添加�
 
 Java Agent 所使用的 Instrumentation 依赖 JVMTI 实现，当然也可以绕过 Instrumentation 直接使用 JVMTI 实现 Agent。因此，JVMTI 与 JDI 组成了 Java 平台调试体系（JPDA）的主要能力。
 
-如果想要深入了解 Java Agent,就得需要了解 JVMTI 以及 JVMTIAgent，下面分别介绍下：
+如果想要深入了解 Java Agent,就得需要了解 `JVMTI `以及 `JVMTIAgent`，下面分别介绍下：
 
 #### 3.1**JVMTI**
 
@@ -1241,19 +1241,260 @@ public static void main(String args[])
 }
 ```
 
+##  后端编译
+
+### 1.即时编译器
+
+目前主流地两款商用Java虚拟机(`HotSpot`、`OpenJ9`)里，Java程序最初都是通过解释器进行执行的，当虚拟机发现某个方法或代码块地运行特别频繁，就会把这些代码认定为"热点代码"(`Hot Spot Code`)，为了提高热点代码地执行效率，在运行时虚拟机将会把这些代码编译成本地机器码，并以各种手段尽可能进行代码优化，运行时完成这个任务地后端编译器被称为即时编译器。
+
+#### 1.1解释器和编译器
+
+`HotSpot`、`OpenJ9`内部都同时包含解释器与编译器，各有优势，当程序需要迅速启动和执行地时候，解释器可以首先发挥作用，省去编译的时间，立即运行。当程序启动后，随着时间地推移，编译器逐渐发挥作用，把越来越多地代码编译成本地代码，这样可以减少解释器地中间损耗，获得更高地执行效率。当程序运行环境中内存资源限制较大，可以使用解释器执行节约内存，反之可以使用编译执行来提升效率。同时，解释器还可以作为编译器激进优化时后备地**逃生门**，让编译器根据概率选择一些不能保证所有情况都正确，但大多数时候都能提升速度地优化手段，当激进假设不成立，可以通过逆优化退回到解释状态继续执行。
+
+`HotSpot`虚拟机内置了两个(或三个)即时编译器，两个存在已久，分别称为**客户端编译器(Client Compiler)**和**服务端编译器(Server Compiler)**，或者称为C1编译器和C2编译器，第三个时JDK10出现的，长期目标时代替C2地`Graal`编译器。
+
+#### 1.2编译对象和触发条件
+
+**热点代码：**
+
+1. 被多次调用地方法
+2. 被多次执行的循环体
+
+编译的目标对象都是整个方法体，而不会是单独的循环体。第一种情况，由于依靠方法调用触发的编译，编译器理所当然会以整个方法作为编译对象，这种编译也是虚拟机中标准的即时编译方式。而，对于另一种情况，尽管编译动作
 
 
 
+## This引用逃逸
+
+### 1.简介
+
+在构造器构造还未彻底完成前（即实例初始化阶段还未完成），将自身this引用向外抛出并被其他线程复制（访问）了该引用，可能会问到该还未被初始化的变量，甚至可能会造成更大严重的问题。
+
+```java
+/**
+ * 模拟this逃逸
+ * @author Lijian
+ *
+ */
+public class ThisEscape {
+    //final常量会保证在构造器内完成初始化（但是仅限于未发生this逃逸的情况下，具体可以看多线程对final保证可见性的实现）
+    final int i;
+    //尽管实例变量有初始值，但是还实例化完成
+    int j = 0;
+    static ThisEscape obj;
+    public ThisEscape() {
+        i=1;
+        j=1;
+        //将this逃逸抛出给线程B
+        obj = this;
+    }
+    public static void main(String[] args) {
+        //线程A：模拟构造器中this逃逸,将未构造完全对象引用抛出
+        /*Thread threadA = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                //obj = new ThisEscape();
+            }
+        });*/
+        //线程B：读取对象引用，访问i/j变量
+        Thread threadB = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                //可能会发生初始化失败的情况解释：实例变量i的初始化被重排序到构造器外，此时1还未被初始化
+                ThisEscape objB = obj;
+                try {
+                    System.out.println(objB.j);
+                } catch (NullPointerException e) {
+                    System.out.println("发生空指针错误：普通变量j未被初始化");
+                }
+                try {
+                    System.out.println(objB.i);
+                } catch (NullPointerException e) {
+                    System.out.println("发生空指针错误：final变量i未被初始化");
+                }
+            }
+        });
+            //threadA.start();
+            threadB.start();
+    }
+}
 
 
+//print
+//发生空指针错误：普通变量j未被初始化
+//发生空指针错误：final变量i未被初始化
+```
 
+输出结果：这说明ThisEscape还未完成实例化，构造还未彻底结束。
 
+另一种情况是利用线程A模拟this逃逸，但不一定会发生，线程A模拟构造器正在构造...而线程B尝试访问变量，这是因为
 
+1. 由于JVM的指令重排序存在，实例变量i的初始化被安排到构造器外（final可见性保证是final变量规定在构造器中完成的）；
+2. 类似于this逃逸，线程A中构造器构造还未完全完成。
 
+所以尝试多次输出（相信我一定会发生的，只是概率相对低），也会发生类似this引用逃逸的情况。
 
+```java
+/**
+ * 模拟this逃逸
+ * @author Lijian
+ *
+ */
+public class ThisEscape {
+    //final常量会保证在构造器内完成初始化（但是仅限于未发送this逃逸的情况下）
+    final int i;
+    //尽管实例变量有初始值，但是还实例化完成
+    int j = 0;
+    static ThisEscape obj;
+    public ThisEscape() {
+        i=1;
+        j=1;
+        //obj = this ;
+    }
+    public static void main(String[] args) {
+        //线程A：模拟构造器中this逃逸,将未构造完全对象引用抛出
+        Thread threadA = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                //构造初始化中...线程B可能获取到还未被初始化完成的变量
+                //类似于this逃逸，但并不定发生
+                obj = new ThisEscape();
+            }
+        });
+        //线程B：读取对象引用，访问i/j变量
+        Thread threadB = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                //可能会发生初始化失败的情况解释：实例变量i的初始化被重排序到构造器外，此时1还未被初始化
+                ThisEscape objB = obj;
+                try {
+                    System.out.println(objB.j);
+                } catch (NullPointerException e) {
+                    System.out.println("发生空指针错误：普通变量j未被初始化");
+                }
+                try {
+                    System.out.println(objB.i);
+                } catch (NullPointerException e) {
+                    System.out.println("发生空指针错误：final变量i未被初始化");
+                }
+            }
+        });
+            threadA.start();
+            threadB.start();
+    }
+}
 
+//输出
+//发生空指针错误：普通变量j未被初始化
+//发生空指针错误：final变量i未被初始化
+```
 
+### 2.什么情况下会This逃逸？
 
+1. **在构造器中很明显地抛出this引用提供其他线程使用（如上述的明显将this抛出）。**
+2. **在构造器中内部类使用外部类情况：内部类访问外部类是没有任何条件的，也不要任何代价，也就造成了当外部类还未初始化完成的时候，内部类就尝试获取为初始化完成的变量**
+   - 在构造器中启动线程：启动的线程任务是内部类，在内部类中xxx.this访问了外部类实例，就会发生访问到还未初始化完成的变量
+   - 在构造器中注册事件，这是因为在构造器中监听事件是有回调函数（可能访问了操作了实例变量），而事件监听一般都是异步的。在还未初始化完成之前就可能发生回调访问了未初始化的变量。
+
+在构造器中启动线程代码实现：
+
+```java
+/**
+ * 模拟this逃逸2：构造器中启动线程
+ * @author Lijian
+ *
+ */
+public class ThisEscape2 {
+    final int i;
+    int j;
+    public ThisEscape2() {
+        i = 1;
+        j = 1;
+        new Thread(new RunablTest()).start();
+    }
+    //内部类实现Runnable：引用外部类
+    private class RunablTest implements Runnable{
+        @Override
+        public void run() {
+            try {
+                System.out.println(ThisEscape2.this.j);
+            } catch (NullPointerException e) {
+                System.out.println("发生空指针错误：普通变量j未被初始化");
+            }
+            try {
+                System.out.println(ThisEscape2.this.i);
+            } catch (NullPointerException e) {
+                System.out.println("发生空指针错误：final变量i未被初始化");
+            }
+        }
+        
+    }
+    public static void main(String[] args) {
+        new ThisEscape2();
+    }
+}
+```
+
+构造器中注册事件，引用网上的一段伪代码将以解释：
+
+```java
+public class ThisEscape3 {
+    private final int var;
+ 
+    public ThisEscape3(EventSource source) {
+　　　　 //注册事件，会一直监听，当发生事件e时，会执行回调函数doSomething
+        source.registerListener(
+　　　　　　　//匿名内部类实现
+            new EventListener() {
+                public void onEvent(Event e) {
+　　　　　　　　　　　 //此时ThisEscape3可能还未初始化完成，var可能还未被赋值，自然就发生严重错误
+                    doSomething(e);
+                }
+            }
+        );
+        var = 10;
+    }
+    // 在回调函数中访问变量
+    int doSomething(Event e) {
+        return var;
+    }
+}
+```
+
+### 3.怎样避免This逃逸？
+
+（1）单独编写一个启动线程的方法，不要在构造器中启动线程，尝试在外部启动。
+
+```
+...
+private Thread t;
+public ThisEscape2() {
+    t = new Thread(new EscapeRunnable());
+}
+
+public void initStart() {
+    t.start();
+}
+...
+```
+
+（2）将事件监听放置于构造器外，比如new Object()的时候就启动事件监听，但是在构造器内不能使用事件监听，那可以在static{}中加事件监听，这样就跟构造器解耦了
+
+```
+static{
+    source.registerListener(
+            new EventListener() {
+                public void onEvent(Event e) {
+                    doSomething(e);
+                }
+            }
+        );
+        var = 10;
+    }
+}   
+```
+
+this引用逃逸问题实则是Java多线程编程中需要注意的问题，引起逃逸的原因无非就是在多线程的编程中“滥用”引用（往往涉及构造器中显式或隐式地滥用this引用），在使用到this引用的时候需要特别注意！
 
 
 
