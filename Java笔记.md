@@ -1260,7 +1260,18 @@ public static void main(String args[])
 1. 被多次调用地方法
 2. 被多次执行的循环体
 
-编译的目标对象都是整个方法体，而不会是单独的循环体。第一种情况，由于依靠方法调用触发的编译，编译器理所当然会以整个方法作为编译对象，这种编译也是虚拟机中标准的即时编译方式。而，对于另一种情况，尽管编译动作
+编译的目标对象都是整个方法体，而不会是单独的循环体。第一种情况，由于依靠方法调用触发的编译，编译器理所当然会以整个方法作为编译对象，这种编译也是虚拟机中标准的即时编译方式。而对于另一种情况，尽管编译动作是由循环体所触发，热点只是方法的一部分，但编译器依然必须以整个方法作为编译对象，只是执行入口会稍有不同，编译时传入执行入口点字节码序号。
+
+要知道某段代码是不是热点代码，是不是需要触发即时编译器，这个行为称为**热点探测(Hot Spot Code Detection)**，热点探测并不一定要知道方法具体被调用了多少次，热点探测方法：
+
+1. 基于采样的热点探测(Sample Based Hot Spot Code Detection)，`J9`采用这种方法的虚拟机会周期性地检查各个线程地调用栈顶，如果发现某个方法经常出现在栈顶，那这个方法就是**热点方法**
+   - 优点：实现简单高效
+   - 缺点：很难精确地确认一个方法地热度
+2. 基于计数器地热点探测(Counter Based Hot Spot Code Detection)，`HotSpot`采用该方法地虚拟机会为每个方法建立计数器，统计方法地执行次数，如果执行次数超过一定地阈值就认为它是**热点方法**
+   - 优点：精确严谨
+   - 缺点：实现麻烦
+
+### 2.编译优化技术
 
 
 
@@ -1496,13 +1507,378 @@ static{
 
 this引用逃逸问题实则是Java多线程编程中需要注意的问题，引起逃逸的原因无非就是在多线程的编程中“滥用”引用（往往涉及构造器中显式或隐式地滥用this引用），在使用到this引用的时候需要特别注意！
 
+## 一致性HashCode
+
+### 1.简介
+
+> 在Java语言里一个对象如果计算过哈希码，就应该一直保持该值不变，否则很多依赖对象哈希码的API都可能存在出错风险，而作为绝大多数对象哈希码来源的`Object::hashCode()`方法，返回的是对象的一致性哈希码`Identity Hash Code`，这个值是能强制保证不变的，它通过在对象头中存储计算结果来保证第一次计算之后，再次调用该方法取到的哈希码值永远不会再发生改变。因此当一个对象已经计算过一致性哈希码之后，它就再也无法进入偏向锁状态，而当一个对象已经处于偏向锁状态，又收到需要计算其一致性哈希码请求时，它的偏向锁状态会立即撤销，并且锁会膨胀为重量级锁。在重量级锁的实现中，对象头指向了重量级锁的位置，代表重量级锁的`ObjectMonitor`类里有字段可以记录非加锁状态(标志位`01`)下的`Mark Word`，可以存储原来的哈希码。
+
+```java
+public static void test06() throws InterruptedException {
+    Thread.sleep(5000);//等待偏向锁启动，默认启动时间5s
+    Object o = new Object();
+    System.out.println(o.hashCode());
+    System.out.println(ClassLayout.parseInstance(o).toPrintable());
+    synchronized (o) {
+        System.out.println(ClassLayout.parseInstance(o).toPrintable());
+    }
+}
+```
+
+输出：
+
+```
+366712642
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x00000015db974201 (hash: 0x15db9742; age: 0)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x0000000002c3f418 (thin lock: 0x0000000002c3f418)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+```
+
+```java
+public static void test06() throws InterruptedException {
+    Thread.sleep(5000);
+    Object o = new Object();
+    System.out.println(ClassLayout.parseInstance(o).toPrintable());
+    synchronized (o) {
+        System.out.println(ClassLayout.parseInstance(o).toPrintable());
+    }
+}
+```
+
+输出：
+
+```
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x0000000000000005 (biasable; age: 0)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x000000000115e005 (biased: 0x0000000000004578; epoch: 0; age: 0)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+```
+
+```java
+public static void test06() throws InterruptedException {
+    Thread.sleep(5000);
+    Object o = new Object();
+    System.out.println(ClassLayout.parseInstance(o).toPrintable());
+    synchronized (o) {
+        System.out.println(ClassLayout.parseInstance(o).toPrintable());
+        System.out.println(o.hashCode());
+        System.out.println(ClassLayout.parseInstance(o).toPrintable());
+    }
+}
+```
+
+```
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x0000000000000005 (biasable; age: 0)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x00000000032ae005 (biased: 0x000000000000cab8; epoch: 0; age: 0)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+
+693632176
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x000000001ccd1d4a (fat lock: 0x000000001ccd1d4a)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+```
+
+> 以上说的hashcode的计算都来自Object::hashCode()或者System::identityHashCode(Objcet)方法，如果重写了hashCode（）方法，计算hashcode时不会产生以上的问题。
 
 
 
+### 2.hashcode和identityHashCode
 
+```java
+public native int hashCode();
+```
 
+`hashcode`规定：
 
+1. 在Java应用程序执行期间，无论何时在同一对象上多次调用hashCode方法，只要在对象的相等比较中使用的信息没有被修改，它必须一致地返回相同的整数。该整数在应用程序的一次执行和同一应用程序的另一次执行之间不必保持一致。
+2. 如果两个对象根据equals(Object)方法是相等的，那么对两个对象中的每个对象调用hashCode方法必须产生相同的整数结果。
+3. 如果两个对象根据equals(Object)方法是不相等的，则不需要对两个对象中的每个对象调用hashCode方法必须产生不同的整数结果。但是，程序员应该意识到，为不相等的对象生成不同的整数结果可能会提高哈希表的性能。
 
+```java
+public static native int identityHashCode(Object x);
+```
+
+`identityHashCode`规定：
+
+1. 无论给定对象的类是否覆盖hashCode()，返回给定对象的哈希码与默认方法hashCode()返回的哈希码相同。空引用的哈希码是零。
+
+```java
+import static java.lang.System.out;
+/**
+ * 一个对象的hashCode和identityHashCode 的关系：
+ * 1：对象的hashCode，一般是通过将该对象的内部地址转换成一个整数来实现的
+ * 2：当一个类没有重写Object类的hashCode()方法时，它的hashCode和identityHashCode是一致的
+ * 3：当一个类重写了Object类的hashCode()方法时，它的hashCode则有重写的实现逻辑决定，此时的hashCode值一般就不再和对象本身的内部地址有相应的哈希关系了
+ * 4：当null调用hashCode方法时，会抛出空指针异常，但是调用System.identityHashCode(null)方法时能正常的返回0这个值
+ * 5：一个对象的identityHashCode能够始终和该对象的内部地址有一个相对应的关系，从这个角度来讲，它可以用于代表对象的引用地址，所以，在理解==这个操作运算符的时候是比较有用的
+ *
+ */
+
+public class HashCodeTestMain
+{
+    /**
+     * 输出对象重写的hashCode和唯一的hashCode
+     * @param object
+     */
+    public static void printHashCodes(final Object object)
+    {
+        //输入对象的数据类型，以及调用toString()方法后返回的字符串形式，当对象为空时，此处输出null
+        out.println("\nThe object type is  : " + (object != null ? object.getClass().getName() : "null") + "\nThe object value is : "+String.valueOf(object));
+        //输出对象的hashCode值，当对象为空时，此处输出N/A
+        out.println("Overridden hashCode : " + (object != null ? object.hashCode() : "N/A"));
+        //输出对象的identityHashCode值，如果对应的类没有重写Object类的hashCode()方法，则和默认的hashCode值一致
+        out.println("Identity   hashCode : " + System.identityHashCode(object));
+    }
+
+    /**
+     * 主函数，程序执行的入口
+     * @param arguments
+     */
+    public static void main(String[] arguments)
+    {
+        //基本数据类型的测试数据
+        final byte _byte = 6;
+        final char _char = 's';
+        final short _short = 6;
+        final int _int = 6;
+        final long _long = 6L;
+        final float _float = 6;
+        final double _double= 6;
+        final boolean _boolean = true;
+
+        //包装类型的测试数据
+        final Byte _Byte = 9;
+        final Character _Character = 'S';
+        final Short _Short = 9;
+        final Integer _Integer = 9;
+        final Long _Long = 9L;
+        final Float _Float = 9F;
+        final Double _Double = 9D;
+        final Boolean _Boolean = false;
+
+        //字符串类型的测试数据
+        final String someString = "someString";
+        //null
+        final String nullString = null;
+        //自定义的测试对象
+        final User user = new User(666,"godtrue");
+
+        //基本数据类型的测试数据
+        out.println("\n测试基本数据类型的数据");
+        printHashCodes(_byte);
+        printHashCodes(_char);
+        printHashCodes(_short);
+        printHashCodes(_int);
+        printHashCodes(_long);
+        printHashCodes(_float);
+        printHashCodes(_double);
+        printHashCodes(_boolean);
+
+        //包装类型的测试数据
+        out.println("\n测试包装数据类型的数据");
+        printHashCodes(_Byte);
+        printHashCodes(_Character);
+        printHashCodes(_Short);
+        printHashCodes(_Integer);
+        printHashCodes(_Long);
+        printHashCodes(_Float);
+        printHashCodes(_Double);
+        printHashCodes(_Boolean);
+
+       //字符串类型的测试数据
+        out.println("\n测试字符串类型的数据");
+        printHashCodes(someString);
+
+        //null
+        out.println("\n测试null空对象");
+        printHashCodes(nullString);
+
+        //自定义的测试对象
+        out.println("\n测试自定义对象，构造此类的时候没有重写它的hashCode()方法");
+        printHashCodes(user);
+    }
+}
+```
+
+```java
+public class User {
+    private Integer id;
+    private String name;
+
+    public User() {
+    }
+
+    public User(Integer id ,String name) {
+        this.id = id;
+        this.name = name;
+    }
+
+    @Override
+    public String toString() {
+        final StringBuffer sb = new StringBuffer("{\"User\":{");
+        sb.append("\"id\":\"").append(id).append("\"").append(",");
+        sb.append("\"name\":\"").append(name).append("\"");
+        sb.append("}}");
+        return sb.toString();
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+}
+```
+
+输出结果：
+
+```
+测试基本数据类型的数据
+
+The object type is  : java.lang.Byte
+The object value is : 6
+Overridden hashCode : 6
+Identity   hashCode : 356573597
+
+The object type is  : java.lang.Character
+The object value is : s
+Overridden hashCode : 115
+Identity   hashCode : 1735600054
+
+The object type is  : java.lang.Short
+The object value is : 6
+Overridden hashCode : 6
+Identity   hashCode : 21685669
+
+The object type is  : java.lang.Integer
+The object value is : 6
+Overridden hashCode : 6
+Identity   hashCode : 2133927002
+
+The object type is  : java.lang.Long
+The object value is : 6
+Overridden hashCode : 6
+Identity   hashCode : 1836019240
+
+The object type is  : java.lang.Float
+The object value is : 6.0
+Overridden hashCode : 1086324736
+Identity   hashCode : 325040804
+
+The object type is  : java.lang.Double
+The object value is : 6.0
+Overridden hashCode : 1075314688
+Identity   hashCode : 1173230247
+
+The object type is  : java.lang.Boolean
+The object value is : true
+Overridden hashCode : 1231
+Identity   hashCode : 856419764
+
+测试包装数据类型的数据
+
+The object type is  : java.lang.Byte
+The object value is : 9
+Overridden hashCode : 9
+Identity   hashCode : 621009875
+
+The object type is  : java.lang.Character
+The object value is : S
+Overridden hashCode : 83
+Identity   hashCode : 1265094477
+
+The object type is  : java.lang.Short
+The object value is : 9
+Overridden hashCode : 9
+Identity   hashCode : 2125039532
+
+The object type is  : java.lang.Integer
+The object value is : 9
+Overridden hashCode : 9
+Identity   hashCode : 312714112
+
+The object type is  : java.lang.Long
+The object value is : 9
+Overridden hashCode : 9
+Identity   hashCode : 692404036
+
+The object type is  : java.lang.Float
+The object value is : 9.0
+Overridden hashCode : 1091567616
+Identity   hashCode : 1554874502
+
+The object type is  : java.lang.Double
+The object value is : 9.0
+Overridden hashCode : 1075970048
+Identity   hashCode : 1846274136
+
+The object type is  : java.lang.Boolean
+The object value is : false
+Overridden hashCode : 1237
+Identity   hashCode : 1639705018
+
+测试字符串类型的数据
+
+The object type is  : java.lang.String
+The object value is : someString
+Overridden hashCode : -1264993755
+Identity   hashCode : 1627674070
+
+测试null空对象
+
+The object type is  : null
+The object value is : null
+Overridden hashCode : N/A
+Identity   hashCode : 0
+
+测试自定义对象，构造此类的时候没有重写它的hashCode()方法
+
+The object type is  : com.test.User
+The object value is : {"User":{"id":"666","name":"godtrue"}}
+Overridden hashCode : 1360875712
+Identity   hashCode : 1360875712
+```
 
 
 
