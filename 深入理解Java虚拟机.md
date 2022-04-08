@@ -1367,115 +1367,7 @@ this引用逃逸问题实则是Java多线程编程中需要注意的问题，引
 
 ### 1.简介
 
-> 在Java语言里一个对象如果计算过哈希码，就应该一直保持该值不变，否则很多依赖对象哈希码的API都可能存在出错风险，而作为绝大多数对象哈希码来源的`Object::hashCode()`方法，返回的是对象的一致性哈希码`Identity Hash Code`，这个值是能强制保证不变的，它通过在对象头中存储计算结果来保证第一次计算之后，再次调用该方法取到的哈希码值永远不会再发生改变。因此当一个对象已经计算过一致性哈希码之后，它就再也无法进入偏向锁状态，而当一个对象已经处于偏向锁状态，又收到需要计算其一致性哈希码请求时，它的偏向锁状态会立即撤销，并且锁会膨胀为重量级锁。在重量级锁的实现中，对象头指向了重量级锁的位置，代表重量级锁的`ObjectMonitor`类里有字段可以记录非加锁状态(标志位`01`)下的`Mark Word`，可以存储原来的哈希码。
-
-```java
-public static void test06() throws InterruptedException {
-    Thread.sleep(5000);//等待偏向锁启动，默认启动时间5s
-    Object o = new Object();
-    System.out.println(o.hashCode());
-    System.out.println(ClassLayout.parseInstance(o).toPrintable());
-    synchronized (o) {
-        System.out.println(ClassLayout.parseInstance(o).toPrintable());
-    }
-}
-```
-
-输出：
-
-```
-366712642
-java.lang.Object object internals:
-OFF  SZ   TYPE DESCRIPTION               VALUE
-  0   8        (object header: mark)     0x00000015db974201 (hash: 0x15db9742; age: 0)
-  8   4        (object header: class)    0xf80001e5
- 12   4        (object alignment gap)    
-Instance size: 16 bytes
-Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
-
-java.lang.Object object internals:
-OFF  SZ   TYPE DESCRIPTION               VALUE
-  0   8        (object header: mark)     0x0000000002c3f418 (thin lock: 0x0000000002c3f418)
-  8   4        (object header: class)    0xf80001e5
- 12   4        (object alignment gap)    
-Instance size: 16 bytes
-Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
-```
-
-```java
-public static void test06() throws InterruptedException {
-    Thread.sleep(5000);
-    Object o = new Object();
-    System.out.println(ClassLayout.parseInstance(o).toPrintable());
-    synchronized (o) {
-        System.out.println(ClassLayout.parseInstance(o).toPrintable());
-    }
-}
-```
-
-输出：
-
-```
-java.lang.Object object internals:
-OFF  SZ   TYPE DESCRIPTION               VALUE
-  0   8        (object header: mark)     0x0000000000000005 (biasable; age: 0)
-  8   4        (object header: class)    0xf80001e5
- 12   4        (object alignment gap)    
-Instance size: 16 bytes
-Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
-
-java.lang.Object object internals:
-OFF  SZ   TYPE DESCRIPTION               VALUE
-  0   8        (object header: mark)     0x000000000115e005 (biased: 0x0000000000004578; epoch: 0; age: 0)
-  8   4        (object header: class)    0xf80001e5
- 12   4        (object alignment gap)    
-Instance size: 16 bytes
-Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
-```
-
-```java
-public static void test06() throws InterruptedException {
-    Thread.sleep(5000);
-    Object o = new Object();
-    System.out.println(ClassLayout.parseInstance(o).toPrintable());
-    synchronized (o) {
-        System.out.println(ClassLayout.parseInstance(o).toPrintable());
-        System.out.println(o.hashCode());
-        System.out.println(ClassLayout.parseInstance(o).toPrintable());
-    }
-}
-```
-
-```
-java.lang.Object object internals:
-OFF  SZ   TYPE DESCRIPTION               VALUE
-  0   8        (object header: mark)     0x0000000000000005 (biasable; age: 0)
-  8   4        (object header: class)    0xf80001e5
- 12   4        (object alignment gap)    
-Instance size: 16 bytes
-Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
-
-java.lang.Object object internals:
-OFF  SZ   TYPE DESCRIPTION               VALUE
-  0   8        (object header: mark)     0x00000000032ae005 (biased: 0x000000000000cab8; epoch: 0; age: 0)
-  8   4        (object header: class)    0xf80001e5
- 12   4        (object alignment gap)    
-Instance size: 16 bytes
-Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
-
-693632176
-java.lang.Object object internals:
-OFF  SZ   TYPE DESCRIPTION               VALUE
-  0   8        (object header: mark)     0x000000001ccd1d4a (fat lock: 0x000000001ccd1d4a)
-  8   4        (object header: class)    0xf80001e5
- 12   4        (object alignment gap)    
-Instance size: 16 bytes
-Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
-```
-
-> 以上说的hashcode的计算都来自Object::hashCode()或者System::identityHashCode(Objcet)方法，如果重写了hashCode（）方法，计算hashcode时不会产生以上的问题。
-
-
+在Java语言里一个对象如果计算过哈希码，就应该一直保持该值不变，否则很多依赖对象哈希码的API都可能存在出错风险，而作为绝大多数对象哈希码来源的`Object::hashCode()`方法，返回的是对象的一致性哈希码`Identity Hash Code`，这个值是能强制保证不变的，它通过在对象头中存储计算结果来保证第一次计算之后，再次调用该方法取到的哈希码值永远不会再发生改变。
 
 ### 2.hashcode和identityHashCode
 
@@ -1736,6 +1628,351 @@ Overridden hashCode : 1360875712
 Identity   hashCode : 1360875712
 ```
 
+## AbstractQueuedSynchronizer(AQS)
+
+### 1.同步器
+
+ **同步器**是一种抽象数据类型，在该类型的内部，维护了以下内容：
+
+1.  一个状态变量，该变量的不同取值可以表征不同的同步状态语义（例如表示一个锁已经被线程持有了还是没有任何线程持有）；
+2. 能够更新和检查该状态变量值的操作（方法）集合；
+3. 至少有一个方法——当同步状态的值需要时可调用该方法阻塞来修改该状态的线程；或当其他的线程修改了同步状态值，可允许调用该方法唤醒其他阻塞线程
+
+简单说，同步器中包含一个**可表征同步状态的变量**，**可操作该变量的方法集**，以及**可阻塞或唤醒其他来修改该状态的线程的方法集**。
+
+互斥锁，读写锁，信号量，屏障，事件指示器等等都是同步器。
+
+### 2.简介
+
+`AQS`，全称是`AbstractQueuedSynchronizer`，中文译为抽象队列式同步器。这个抽象类对于JUC并发包非常重要，JUC包中的`ReentrantLock`，`Semaphore`，`ReentrantReadWriteLock`，`CountDownLatch`等等几乎所有的类都是基于AQS实现的。**抽象**是说该类是一个抽象类，**队列式同步器**是说AQS使用队列来管理多个抢占资源的线程。AQS在其内部实现了上面所说的同步器的三要素，而且它会把抢占资源失败的线程放入自己内部的一个队列当中维护起来，在这个队列内部的线程会排队等待获取线程。
+
+ 线程获取或释放锁的本质是去修改AQS内部那个可以表征同步状态的变量的值。比如说，我们创建一个`ReentrantLock`的实例，此时该锁实例内部的状态的值为0，表征它还没有被任何线程所持有。当多个线程同时调用它的lock()方法获取锁时，它们的本质操作其实就是将该锁实例的同步状态变量的值由0修改为1，第1个抢到这个操作执行的线程就成功获取了锁，后续执行操作的线程就会看到状态变量的值已经为1了，即表明该锁已经被其他线程获取，它们抢占锁失败了。这些抢占锁失败的线程会被AQS放入到一个队列里面去维护起来。当然，实际的情况肯定要稍微复杂些，但本质上是这个道理。
+
+ `AQS`是一个抽象类，当我们继承AQS去实现自己的同步器时，要做的仅仅是根据自己同步器需要满足的性质实现线程获取和释放资源的方式（修改同步状态变量的方式）即可，至于具体线程等待队列的维护（如获取资源失败入队、唤醒出队、以及线程在队列中行为的管理等），AQS在其顶层已经帮我们实现好了，`AQS`的这种设计使用的正是模板方法模式。
+
+ `AQS`支持线程抢占两种锁——独占锁和共享锁：
+
+1. **独占锁**：同一个时刻只能被一个线程占有，如`ReentrantLock`，`ReentrantWriteLock`等，它又可分为：
+   - 公平锁：按照线程在队列中的排队顺序，先到者先拿到锁
+   - 非公平锁：当线程要获取锁时，无视队列顺序直接去抢锁，谁抢到就是谁的
+2. **共享锁**：同一时间点可以被多个线程同时占有，如`ReentrantReadLock`，`Semaphore`等
+
+ `AQS`的所有子类中，要么使用了它的独占锁，要么使用了它的共享锁，不会同时使用它的两个锁。
+
+### 3.AQS中的核心成员和内部类
+
+AQS使用一个int成员变量state去表征当前资源的同步状态。AQS使用CAS对该同步状态进行原子操作实现对其值的修改。
+
+```java
+private volatile int state;  //共享变量，表征同步状态的值，用volatile修饰保证线程间可见性
+```
+
+AQS可以修改该同步状态值的方法：
+
+```
+/** 返回同步状态的当前值（此操作具有volatile变量的读语义） **/
+protected final int getState() {  //方法被final修饰，不允许被重写
+        return state;
+} 
+ /** 设置同步状态的值（此操作具有volatile变量的写语义） **/
+protected final void setState(int newState) { //方法被final修饰，不允许被重写
+        state = newState;
+}
+/**
+ * 原子地（CAS操作）将同步状态值设置为给定值update如果当前同步状态的值等于expect（此操作具有volatile变量的读写语义）
+ * @return  成功返回true，失败返回false，意味着当操作进行时同步状态的当前值不是expect
+**/
+protected final boolean compareAndSetState(int expect, int update) { //方法被final修饰,不允许被重写
+        return unsafe.compareAndSwapInt(this, stateOffset, expect, update);
+}
+```
+
+ AQS通过维护一个等待获取锁的线程队列来管理（获取资源失败入队/唤醒出队）抢占锁的线程，这个队列是一种CLH队列的变体。如下图：
+
+![img](images/1458368-20180821104010490-203691963.png)
+
+1. AQS持有head指针和tail指针，头结点是抢占锁成功而持有锁的线程对应的结点，若有线程抢锁失败，AQS会创建新结点并用CAS操作使其成为新的尾结点
+
+2. AQS把对某线程的一些控制信息放到了其前驱中维护，当某结点的前驱释放锁或被取消时会唤醒其后继，而其后继会在获取锁成功后将自己设为新的头结点
+
+   可以看到，AQS对这个维护等待线程队列的操作都是非阻塞的，也是线程安全的。
+
+   队列中的每个结点都是类Node的一个实例，类Node的定义如下：
+
+   ```java
+   private transient volatile Node head;//队头,延迟加载,除初始化外其他情况都使用setHead操作;其waitStatus值不为CANCELLED
+   private transient volatile Node tail;//队尾
+   /** 队列中的结点,每个等待中的结点可能会处于几种不同的等待状态 **/
+   static final class Node{
+       static final Node SHARED = new Node(); //表示结点对应线程想共享地抢占锁
+       static final Node EXCLUSIVE = null;    //表示结点对应线程想独占地抢占锁
+       volatile int waitStatus;   //结点的等待状态，CLH队列中初始默认为0,Condition队列中初始默认为-2
+       static final int CANCELLED = 1; // 结点已被取消,表示线程放弃抢锁,结点状态以后不再变直到GC回收它
+       static final int SIGNAL = -1;//结点的后继已经或很快就阻塞,在结点释放锁或被取消时要唤醒其后面第1个非CANCELLED结点
+       
+       /** Condition队列中结点的状态,CLH队列中结点没有该状态,当Condition的signal方法被调用,
+       Condition队列中的结点被转移进CLH队列并且状态变为0 **/
+       static final int CONDITION = -2;
+       
+       //与共享模式相关,当线程以共享模式去获取或释放锁时,对后续线程的释放动作需要不断往后传播
+       static final int PROGAGATE = -3;
+       
+       volatile Node prev;  //指向结点在队列中的前驱
+       volatile Node next;  //指向结点在队列中的后继
+       volatile Thread thread;  //使当前结点进队的线程（与当前结点关联的线程）
+       Node nextWaiter;//Condition队列中指向结点在队列中的后继;在CLH队列中共享模式下值取SHARED,独占模式下为null
+       final boolean isShared() {  //若结点在CLH队列中以共享模式等待则返回true
+           return nextWaiter == SHARED;
+       }
+       final Node predecessor() throws NullPointerException {  //返回结点前驱
+           Node p = prev;
+           if (p == null) throw new NullPointerException();
+           else return p;
+       }
+       Node() {}  // Used to establish initial head or SHARED marker
+       Node(Thread thread, Node mode) {  //往CLH队列中添加结点时调用此构造器构造结点
+           this.nextWaiter = mode;
+           this.thread = thread;
+       }
+       Node(Thread thread, int waitStatus) { //往Condition队列中添加结点时调用此构造器构造结点
+           this.waitStatus = waitStatus; //传入的waitStatus为CONDITION
+           this.thread = thread;
+       }
+   }
+   ```
+
+### 4.AQS的核心模板方法
+
+ AQS使用了模板方法模式，它核心模板方法包括：**acquire**--**release**，**acquireShared**--**releaseShared**四个方法，接下来，我们就一一介绍这几个模板方法。
+
+#### 4.1 acquire(int arg)方法：AQS独占模式下获取锁的顶层入口
+
+线程获取锁，成功直接返回，失败则进入等待队列中排队获取锁。在获取锁的过程中不响应发生的中断而是记录下来，最后检查是否中断过，如果中断过再将中断标记补上。
+
+```java
+public final void acquire(int arg) {  //独占模式获取锁的模板方法
+    if (!tryAcquire(arg) && acquireQueued(addWaiter(Node.EXCLUSIVE), arg))
+        selfInterrupt();
+}
+//线程具体的获取锁方法,此方法由具体同步器(即AQS子类)实现,获取锁成功时要返回true,失败返回false
+protected boolean tryAcquire(int arg) {
+    throw new UnsupportedOperationException();
+}
+/**
+ * 根据当前线程的获取锁模式创建一个结点并加入队列中
+ * @param mode Node.EXCLUSIVE表示独占模式, Node.SHARED表示共享模式
+ * @param return 返回创建的新结点
+**/
+private Node addWaiter(Node mode) {
+    Node node = new Node(Thread.currentThread(), mode);
+    //先在当前方法中用CAS进队试一次,不成功则进入enq()方法中反复尝试直到进队成功
+    Node pred = tail;
+    if (pred != null) {
+        node.prev = pred;  //注意这里先置了node的前驱
+        if (compareAndSetTail(pred, node)) { //CAS操作尝试原子地将tail置为指向当前新建结点
+           pred.next = node; //成功说明tail已指向当前结点,则给当前结点前驱的next指针赋值
+           return node;
+        }
+    }
+    enq(node);  //失败进入enq()方法反复尝试直到成功
+    return node;
+}
+//反复尝试直到结点进入等待队列成为队尾,注意该方法返回输入结点的前驱结点
+private Node enq(final Node node) {
+    for (;;) {   //经典“CAS + 失败重试”
+        Node t = tail;
+        if (t == null) { //需要初始化等待队列
+           if (compareAndSetHead(new Node()))
+                tail = head;
+        } else {    //下面这部分和addWaiter方法中一样
+            node.prev = t;
+            if (compareAndSetTail(t, node)) {
+                t.next = node;
+                return t;
+            }
+        }
+    }
+}
+//已经进入等待队列的线程在队列中独占（且不响应中断）地获取锁的行为
+final boolean acquireQueued(final Node node, int arg) {
+    boolean failed = true;  //获取失败标志,初值为true
+    try {
+        boolean interrupted = false; //记录线程在队列中获取锁的过程中是否发生过中断
+        //死循环,在循环中线程可能会被阻塞0次,1次,或多次,直到获取锁成功才跳出循环,方法返回
+        for (;;) {
+            final Node p = node.predecessor(); //获取当前结点的前驱
+            //只有当前结点的前驱是头结点,当前线程才被允许尝试获取锁;只有获取锁成功才会跳出循环方法返回
+            if (p == head && tryAcquire(arg)) {
+                setHead(node);  //获取锁成功会将当前结点设为头结点
+                p.next = null; // help GC
+                failed = false;
+                return interrupted;  //返回是否发生过中断
+            }
+            //线程不被允许获取锁或获取失败都会进入下面的方法检查是否自己可以阻塞;被唤醒后记录是否是被中断唤醒的
+            if (shouldParkAfterFailedAcquire(p, node) && parkAndCheckInterrupt())
+                interrupted = true;  //如果是被中断唤醒的,会记录下来被中断过
+        }
+    } finally {
+        if (failed)  //线程发生异常则取消获取锁行为
+            cancelAcquire(node);
+    }
+}
+//等待队列中的线程不被允许获取锁或尝试获取锁失败后调用,检查自己是否可以阻塞
+private static boolean shouldParkAfterFailedAcquire(Node pred, Node node) {
+    int ws = pred.waitStatus; //获取前驱的等待状态
+    if (ws == Node.SIGNAL)  //前驱的等待状态已经是SIGNAL,则当前线程可以放心阻塞
+        return true;  //表示要阻塞
+   if (ws > 0) {  //前驱等待状态为CANCELLED,说明前驱已无效
+        do {
+            node.prev = pred = pred.prev;
+        } while (pred.waitStatus > 0);//不断向前寻找状态不为CANCELLED的结点,同时将无效结点链成一个不可达的环,便于GC
+        pred.next = node;  //找到状态不为CANCELLED的结点
+    } else {//前驱状态是PROGAGATE或0时,将其前驱的状态设为SIGNAL,在再次尝试失败后才阻塞(?)
+        compareAndSetWaitStatus(pred, ws, Node.SIGNAL);
+    }
+    return false;  //表示还要再尝试
+}
+//线程阻塞,被唤醒时会返回是否是被中断唤醒的
+private final boolean parkAndCheckInterrupt() {
+    LockSupport.park(this);
+    return Thread.interrupted();
+}
+```
+
+#### 4.2 release(int arg)方法：AQS独占模式下释放锁的顶层入口
+
+调用tryRelease尝试释放锁，如果成功了，需要查看head的waitStatus状态，如果是0，表示CLH队列中没有后继节点了，不需要唤醒后继；否则调用unparkSuccessor唤醒后继。而unparkSuccessor唤醒后继的原理是：找到node后面的第一个非cancelled结点进行唤醒。
+
+```java
+public final boolean release(int arg) {
+        if (tryRelease(arg)) {  //尝试释放锁
+            Node h = head;
+            //如果head的waitStatus为0说明没有后继了,因为如果有后继,它的后继在阻塞前一定会把它的waitStatus设为SIGNAL
+            if (h != null && h.waitStatus != 0)
+                unparkSuccessor(h); //唤醒后继
+            return true;
+        }
+        return false;
+}
+//唤醒后继
+private void unparkSuccessor(Node node) {
+        int ws = node.waitStatus;  //node是获取了锁的结点
+        if (ws < 0)
+            compareAndSetWaitStatus(node, ws, 0);  //唤醒后继前,重置waitStatus为0
+        Node s = node.next;  //node的next指针不一定指向其后继,当node的状态为cancelled的时候,其next指向自己
+        if (s == null || s.waitStatus > 0) {  //这里的s == null的条件判断不理解(?)
+            s = null;
+            for (Node t = tail; t != null && t != node; t = t.prev)  //从后往前找node的后继中第一个没有被取消的结点
+                if (t.waitStatus <= 0)
+                    s = t;
+        }
+        if (s != null)
+            LockSupport.unpark(s.thread);  //唤醒该结点线程
+}
+```
+
+#### 4.3 acquireShared(int arg)方法：AQS共享模式下获取锁的顶层入口
+
+共享锁的获取锁方式和独占锁的获取锁方式有部分相似，有又一些不同。
+
+  刚开始时，在共享资源允许范围内会有多个线程同时共享该锁，剩下的线程就被加入到CLH等待队列中排队阻塞等待；当持有锁的线程释放锁时，它会唤醒在队列中等待的后继，而这个后继在获取锁之后会继续检查资源的剩余量，如果还有剩余，它会接着唤醒自己的后继。也就是说，**共享模式下，**线程无论是在**获取锁**或者**释放锁**的时候，**都可能会唤醒其后继**，而且**在共享资源允许的条件下**会**引起多个线程被连续唤醒**。如果有多个线程同时获取了共享锁，则head指向的那个是CLH队列中最后一个持有锁的线程，其他的都已经出队了。
+
+```java
+public final void acquireShared(int arg) {
+    if (tryAcquireShared(arg) < 0)  //尝试获取锁,成功返回值大于等于0,失败返回值小于0
+        doAcquireShared(arg); //如果失败,则调用doAcquireShared方法获取锁
+}
+private void doAcquireShared(int arg) {
+    final Node node = addWaiter(Node.SHARED); //线程入队
+    boolean failed = true;
+    try {
+        boolean interrupted = false;
+        for (;;) {
+            final Node p = node.predecessor(); //取当前结点的前驱
+            if (p == head) {  //前驱为头结点才允许尝试获取锁,这里体现了入队之后获取资源的顺序性,只要入队,就是顺序的了
+                int r = tryAcquireShared(arg); 
+                if (r >= 0) { //获取锁成功
+                    setHeadAndPropagate(node, r); //将当前线程设为头,然后可能执行对后继SHARED结点的连续唤醒
+                    p.next = null; // help GC
+                    if (interrupted)
+                        selfInterrupt();
+                    failed = false;
+                    return;
+                }
+            }
+            //获取锁失败,设置前驱waitStatus为SIGNAL,然后阻塞,这个过程与独占模式相同
+            if (shouldParkAfterFailedAcquire(p, node) && parkAndCheckInterrupt())
+                interrupted = true;
+        }
+    } finally {
+        if (failed)  //获取锁过程中发生异常造成未成功获取,则取消获取
+            cancelAcquire(node);
+    }
+}
+private void setHeadAndPropagate(Node node, int propagate) { //propagate是资源剩余量,从上面的调用中可以看到
+    Node h = head;  //将旧的头结点先记录下来
+    setHead(node);  //将当前node线程设为头结点,node已经获取了锁
+    //如果资源有剩余量,或者原来的头结点的waitStatus小于0,进一步检查node的后继是否也是共享模式
+    if (propagate > 0 || h == null || h.waitStatus < 0 || (h = head) == null || h.waitStatus < 0) {
+        Node s = node.next; //得到node的后继
+        if (s == null || s.isShared())  //如果后继是共享模式或者现在还看不到后继的状态,则都继续唤醒后继线程
+            doReleaseShared();
+    }
+}
+private void doReleaseShared() {
+    for (;;) {
+        Node h = head;  //记录下当前的head
+        if (h != null && h != tail) {
+            int ws = h.waitStatus;
+            if (ws == Node.SIGNAL) {  //如果head的waitStatus为SIGNAL,一定是它的后继设的,共享模式下要唤醒它的后继
+                if (!compareAndSetWaitStatus(h, Node.SIGNAL, 0)) //先将head的waitStatus设置为0,成功后唤醒其后继
+                    continue;        // loop to recheck cases
+                unparkSuccessor(h); //关键,若成功唤醒了它的后继,它的后继就会去获取锁,如果获取成功,会造成head的改变
+            } else if (ws == 0 && !compareAndSetWaitStatus(h, 0, Node.PROPAGATE)) //没有后继结点,设为PROPAGATE
+                continue;           // loop on failed CAS
+        }
+        if (h == head) //若head发生改变,说明后继成功获取了锁,此时要检查新head的waitStatus,判断是否继续唤醒(下次循环)
+            break; //head没有发生改变则停止持续唤醒
+    }
+}
+```
+
+共享锁获取总结：
+
+1.与独占模式的最大不同是，共享模式下，线程无论是对共享锁**成功获取**还是**对资源的释放**都可能会引起**连续唤醒**。独占模式下只有当线程释放锁时才唤醒其后继，而且不会连续唤醒（暂时忽略取消造成的唤醒）
+
+2.每次唤醒新的线程，这个线程尝试获取锁，如果获取到了锁，新线程除了将自己设为头结点之外，还会检查是否满足继续唤醒条件，如果满足，则继续唤醒其后继。
+
+3.在共享模式下，当队列中某个结点的waitStatus为0时，表明它没有后继（因为如果有后继，后继就会把它的waitStatus置为-1了），这时候线程会把它的waitStatus设置为PROPAGATE，表示一旦出现一个新的共享结点连接在该结点后，该结点的共享锁将传播下去。
+
+#### 4.4 releaseShared(int arg)方法：共享锁释放的顶层入口
+
+```java
+public final boolean releaseShared(int arg) {
+    if (tryReleaseShared(arg)) {  //如果释放锁成功
+        doReleaseShared();  //启动对后继的持续唤醒
+        return true;
+    }
+    return false;
+}
+private void doReleaseShared() {
+    for (;;) {
+        Node h = head;  //记录下当前的head
+        if (h != null && h != tail) {
+            int ws = h.waitStatus;
+            if (ws == Node.SIGNAL) {  //如果head的waitStatus为SIGNAL,一定是它的后继设的,共享模式下要唤醒它的后继
+                if (!compareAndSetWaitStatus(h, Node.SIGNAL, 0)) //先将head的waitStatus设置为0,成功后唤醒其后继
+                    continue;        // loop to recheck cases
+                unparkSuccessor(h); //关键,若成功唤醒了它的后继,它的后继就会去获取锁,如果获取成功,会造成head的改变
+            } else if (ws == 0 && !compareAndSetWaitStatus(h, 0, Node.PROPAGATE)) //没有后继结点,设为PROPAGATE
+                continue;           // loop on failed CAS
+        }
+        if (h == head) //若head发生改变,说明后继成功获取了锁,此时要检查新head的waitStatus,判断是否继续唤醒(下次循环)
+            break; //head没有发生改变则停止持续唤醒
+    }
+}
+```
+
 
 
 ## 锁优化
@@ -1752,7 +1989,312 @@ Identity   hashCode : 1360875712
 
 ### 2.锁消除
 
-锁消除是指虚拟机即时编译器在运行时，对一些代码要求同步，但是对被检测到不可能存在共享数据竞争的锁进行消除，锁清楚的主要判定依据来源于逃逸分析的数据支持，如果判断
+锁消除是指虚拟机即时编译器在运行时，对一些代码要求同步，但是对被检测到不可能存在共享数据竞争的锁进行消除，锁清楚的主要判定依据来源于逃逸分析的数据支持，如果判断一段代码中，在堆上的所有数据都不会逃逸出去被其它线程访问到，那就可以把它们当作栈上数据对待，认为它们是线程私有的，同步加锁自然就无需再进行。
+
+**为何会在明知道不存在数据竞争的情况下还要求同步呢？**有许多同步措施并不是程序员自己加入的，同步的代码再Java程序中出现较为频繁。
+
+```java
+public String concatString(String s1,String s2,String s3){
+    return s1+s2+s3;
+}
+```
+
+由于String是一个不可变的类，对字符串的连续操作是通过生成新的String对象来进行的，因此`Javac`编译器会对String链接做自动优化。在JDK5之前，字符串加法会转化为`StringBuffer`对象的连续`append()`，JDK5之后会转化为`StringBuilder`对象的连续`append()`操作。
+
+```java
+public String concatString(String s1,String s2,String s3){
+    StringBUffer sb = new StringBuffer();
+    ab.append(s1);
+    ab.append(s2);
+    ab.append(s3);
+    return sb.toString();
+}
+```
+
+每个`StringBuffer.append()`方法中都由一个同步块，锁就是sb对象，虚拟机观察变量sb，经过逃逸分析后会发现它的动态左右域被限制在`concatString()`方法内部，也就是sb的所有引用都永远不会逃逸到`concatString()`方法之外，所以虽然这里有锁，但是可以被安全的消除掉，在解释执行时这里仍会加锁，但在经过服务端编译器的即时编译之后，这段代码就会忽略所有的同步措施而直接执行。
+
+### 3.轻量级锁
+
+轻量级锁是在JDK6时加入的新型锁机制，轻量级是相对于使用操作系统互斥量来实现的传统锁而言，因此传统的锁机制就被称为"重量级"锁，但是**轻量级锁并不是用来代替重量级锁的，它设计的初衷是在没有所线程竞争的前提下，减少传统的重量级锁使用操作系统互斥量产生的性能消耗。**
+
+#### 3.1偏向锁
+
+偏向锁也是JDK 6中引入的一项锁优化措施，它的目的是消除数据在无竞争情况下的同步原语，进一步提高程序的运行性能。
+
+“锁”如其名，偏向锁是一个偏心的锁，它会偏向于第一个获得它得线程。如果在接下来的执行过程中，该锁一直没有被其他的线程获取，则持有偏向锁的线程将永远不需要再进行同步。
+
+##### 偏向锁的工作流程
+
+![v2-560c56b6beba02db8e1c860a5473f8f7_720w](images/v2-560c56b6beba02db8e1c860a5473f8f7_720w-16493794696232.jpg)
+
+`src\share\vm\oops\markOop.hpp`
+
+> the biased lock pattern is used to bias a lock toward a given thread. When this pattern is set in the low three bits, the lock is either biased toward a given thread or "anonymously" biased,indicating that it is possible for it to be biased. When the lock is biased toward a given thread, locking and unlocking can be performed by that thread without using atomic operations. When a lock's bias is revoked, it reverts back to the normal locking scheme described below.
+>
+> 偏向锁模式用于将锁偏向给定线程。 当此模式设置在低三位时，锁要么偏向给定线程，要么“匿名”偏向，表明它可能会偏向。 当锁定偏向给定线程时，锁定和解锁可以由该线程执行，而无需使用原子操作。 当锁的偏向被撤销时，它会恢复到下面描述的正常锁定方案。
+
+```
+[JavaThread* | epoch | age | 1 | 01]       lock is biased toward given thread	指定偏向线程
+[0           | epoch | age | 1 | 01]       lock is anonymously biased			匿名偏向
+```
+
+
+
+
+
+##### 偏向失效
+
+偏向锁不一定一直有效，虚拟机开启偏向锁的启动参数为：XX：+UseBiasedLocking，JDK6之后HotSpot会默认开启偏向锁。但这个偏向锁的开启是存在延迟的，**大概的延迟时间在4秒左右**，当然也可以通过参数-XX:BiasedLockingStartupDelay=0 将延迟改为0，但并不建议。
+
+```java
+public static void test05(){
+    Object o = new Object();
+    System.out.println(ClassLayout.parseInstance(o).toPrintable()); //打印 mark word
+    synchronized (o){
+        System.out.println(ClassLayout.parseInstance(o).toPrintable()); //打印 mark word
+    }
+}
+```
+
+输出
+
+```
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x0000000000000001 (non-biasable; age: 0)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x0000000002bcf2f8 (thin lock: 0x0000000002bcf2f8)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+```
+
+正如我们所料当我们执行这段代码的时候我们的偏向锁并未生效，而是直接生成了轻量级锁。
+
+我们使线程睡眠5秒再次测试看看：
+
+```
+public static void test05() throws InterruptedException {
+
+        Thread.sleep(5000);
+        Object o = new Object();
+        System.out.println(ClassLayout.parseInstance(o).toPrintable()); //打印 mark word
+        synchronized (o) {
+            System.out.println(ClassLayout.parseInstance(o).toPrintable()); //打印 mark word
+        }
+}
+```
+
+```
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x0000000000000005 (biasable; age: 0)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x0000000002fbe005 (biased: 0x000000000000bef8; epoch: 0; age: 0)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+```
+
+我们可以发现，在虚拟机成功开启偏向锁之后但未进入同步代码块之前偏向状态已经被设置为1了，但此时并未设置Thread ID，当进入同步代码块之后Thread ID才会被真正设置。
+
+**那么问题来了？偏向状态到底是在什么时间被设置的呢？是被线程设置？还是在初始化时被设置的呢？我们用下面这段代码再次验证一下**
+
+```java
+public static void test03() throws InterruptedException {
+        Object o1 = new Object();// 我们先初始化o1
+        Thread.sleep(5000);// 等待偏向锁开启
+        System.out.println(ClassLayout.parseInstance(o1).toPrintable()); //此时打印 o1 的对象头我们看到偏向状态为0
+        synchronized (o1){
+            System.out.println(ClassLayout.parseInstance(o1).toPrintable()); //果然此时为轻量级锁
+        }
+        new Thread(()->{
+            System.out.println(ClassLayout.parseInstance(o1).toPrintable()); //我们用另一个线程再次打印下 o1发现他的偏向状态
+仍然为0，并没有被重新设置为1
+            Object o2 = new Object();// 重新初始化对象 o2
+            System.out.println(ClassLayout.parseInstance(o2).toPrintable()); //查看 o2 的对象头偏向状态为 1
+            synchronized (o2){
+                System.out.println(ClassLayout.parseInstance(o2).toPrintable()); //我们发现此时为偏向锁
+            }
+        }).start();
+}
+```
+
+```
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x0000000000000001 (non-biasable; age: 0)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x00000000034af058 (thin lock: 0x00000000034af058)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x0000000000000001 (non-biasable; age: 0)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x0000000000000005 (biasable; age: 0)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x000000001fde6005 (biased: 0x000000000007f798; epoch: 0; age: 0)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+```
+
+**由此我们可以得出结论，当虚拟机开启偏向锁成功之后，被初始化的对象会开启对象的可偏向状态，当线程进入同步代码块时可根据该对象的可偏向状态决定启动偏向锁/轻量级锁。**
+
+##### **偏向撤销的底层实现**
+
+**在并发的环境中，如果想撤销偏向状态，就必须知道被写入Mark Word中的偏向线程的状态以及线程的精确信息。**所以此时竞争者会向JVM提交一个STW（stop the word 时间静止）的请求，在偏向线程到达 safepoint时来获取它的精确状态。如果偏向线程此时还处于同步代码块中，jvm会将mark word的信息转移到偏向线程的栈帧的lock record中（官方命名为displaced mark word）（这里理解它为将偏向锁膨胀为轻量级锁即可），如果偏向锁不在同步代码块中，则将偏向状态设置为 0 并改为无锁状态。
+
+这个过程是不会引起整体的STW的，可参考[JEP 312: Thread-Local Handshakes](https://openjdk.java.net/jeps/312)
+
+##### hashcode与偏向撤销
+
+**Mark Word中存储hashcode与Thread ID、epoch的位置是冲突的。那当需要存储hashcode时，偏向锁的Thread ID怎么办呢？**
+
+**在Java中如果一个对象计算了hashcode，那就应该一直保持该值不变**，这个值是强制保持不变的，它通过在对象头中存储计算结果来保证第一次计算之后，再次调用该方法取到的hashcode永远不会发生改变。因此当一个对象已经计算过一致性哈希码之后，它就再也无法进入偏向锁状态，而当一个对象已经处于偏向锁状态，又收到需要计算其一致性哈希码请求时，它的偏向锁状态会立即撤销，并且锁会膨胀为重量级锁。在重量级锁的实现中，对象头指向了重量级锁的位置，代表重量级锁的`ObjectMonitor`类里有字段可以记录非加锁状态(标志位`01`)下的`Mark Word`，可以存储原来的哈希码。
+
+```java
+public static void test06() throws InterruptedException {
+    Thread.sleep(5000);//等待偏向锁启动，默认启动时间5s
+    Object o = new Object();
+    System.out.println(o.hashCode());
+    System.out.println(ClassLayout.parseInstance(o).toPrintable());
+    synchronized (o) {
+        System.out.println(ClassLayout.parseInstance(o).toPrintable());
+    }
+}
+```
+
+输出：
+
+```
+366712642
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x00000015db974201 (hash: 0x15db9742; age: 0)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x0000000002c3f418 (thin lock: 0x0000000002c3f418)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+```
+
+```java
+public static void test06() throws InterruptedException {
+    Thread.sleep(5000);
+    Object o = new Object();
+    System.out.println(ClassLayout.parseInstance(o).toPrintable());
+    synchronized (o) {
+        System.out.println(ClassLayout.parseInstance(o).toPrintable());
+    }
+}
+```
+
+输出：
+
+```
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x0000000000000005 (biasable; age: 0)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x000000000115e005 (biased: 0x0000000000004578; epoch: 0; age: 0)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+```
+
+```java
+public static void test06() throws InterruptedException {
+    Thread.sleep(5000);
+    Object o = new Object();
+    System.out.println(ClassLayout.parseInstance(o).toPrintable());
+    synchronized (o) {
+        System.out.println(ClassLayout.parseInstance(o).toPrintable());
+        System.out.println(o.hashCode());
+        System.out.println(ClassLayout.parseInstance(o).toPrintable());
+    }
+}
+```
+
+```
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x0000000000000005 (biasable; age: 0)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x00000000032ae005 (biased: 0x000000000000cab8; epoch: 0; age: 0)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+
+693632176
+java.lang.Object object internals:
+OFF  SZ   TYPE DESCRIPTION               VALUE
+  0   8        (object header: mark)     0x000000001ccd1d4a (fat lock: 0x000000001ccd1d4a)
+  8   4        (object header: class)    0xf80001e5
+ 12   4        (object alignment gap)    
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+```
+
+> 以上说的hashcode的计算都来自Object::hashCode()或者System::identityHashCode(Objcet)方法，如果重写了hashCode（）方法，计算hashcode时不会产生以上的问题。
 
 
 
@@ -1762,11 +2304,38 @@ Identity   hashCode : 1360875712
 
 
 
+## Synchronized
 
+### 1.Mark Word结构
 
+![图片1](images/%E5%9B%BE%E7%89%871.png)
 
+```
+//源码位置src\share\vm\oops\markOop.hpp
+64 bits:
+--------
+unused:25 hash:31 -->| unused:1   age:4    biased_lock:1 lock:2 (normal object)
+JavaThread*:54 epoch:2 unused:1   age:4    biased_lock:1 lock:2 (biased object)
+PromotedObject*:61 --------------------->| promo_bits:3 ----->| (CMS promoted object)
+size:64 ----------------------------------------------------->| (CMS free block)
 
+unused:25 hash:31 -->| cms_free:1 age:4    biased_lock:1 lock:2 (COOPs && normal object)
+JavaThread*:54 epoch:2 cms_free:1 age:4    biased_lock:1 lock:2 (COOPs && biased object)
+narrowOop:32 unused:24 cms_free:1 unused:4 promo_bits:3 ----->| (COOPs && CMS promoted object)
+unused:21 size:35 -->| cms_free:1 unused:7 ------------------>| (COOPs && CMS free block)
+```
 
+**对象的内存布局**
+
+![img](images/v2-f3bdcaaf28220a13708ecd1118ab9848_720w.jpg)
+
+> 以上采用64位内存结构
+
+要理解synchronized，必须要对HotSpot虚拟机对象的内存布局（尤其是对象头部分）有所了解。下面我们来介绍下对象头中的主要结构，重点关注Mark Word。
+
+**Mark Word**：
+
+第一部分用于存储对象自身的运行时数据，如哈希码（HashCode）、GC分代年龄（Generational GC Age）等。这部分数据的长度在32位和64位的Java虚拟机中分别会占用32个或64个比特。这部分是实现轻量级锁和偏向锁的关键。
 
 
 
